@@ -1,0 +1,85 @@
+local TableUtil = require(script.Parent:WaitForChild("TableUtil"))
+
+local function clone(value)
+	if typeof(value) == "table" then
+		return TableUtil.clone(value)
+	else
+		return value
+	end
+end
+
+local ObjectVariable = require(script:WaitForChild("ObjectVariable"))
+
+local Object = {}
+Object.__index = Object
+setmetatable(Object, {
+    __call = function(cls, ...)
+        return cls.new(...)
+    end
+})
+
+function Object.new(classType)
+    local obj = setmetatable({}, Object)
+
+    obj.Create = function(ID, data)
+        local args = clone(data)
+        local self = setmetatable({}, obj)
+
+        local propertyTable = {}
+        local callbacks = {}
+
+        local _Update = function(dontCallOnUpdate, ...)
+            if not dontCallOnUpdate then
+                for _,callback in pairs(callbacks) do
+                    callback(self, ...)
+                end
+            end
+        end
+
+        local _AddProperty = function(propertyName, value)
+            local newProperty = ObjectVariable.new(propertyName, value)
+
+            propertyTable[propertyName] = newProperty
+        end
+
+        self.__index = function(_, key)
+            if propertyTable[key] then
+                return propertyTable[key]
+            end
+        end
+
+        self.__newindex = function(_, key, value)
+            if propertyTable[key] then
+                local oldValue = propertyTable[key]:_Get()
+                _Update(false, value, oldValue, key)
+				
+				propertyTable[key]:_Set(value)
+			else
+				--_Update(false, key, value, nil)
+                _AddProperty(key, value)
+            end
+        end
+		
+		self.__tostring = function()
+			return "Class: " .. classType .. ", ID: " .. ID
+		end
+
+        function self:OnUpdate(func)
+            table.insert(callbacks, func)
+        end
+
+        self = setmetatable(self, self)
+		
+		if typeof(args) == "table" then
+       		for key,val in pairs(args) do
+            	self[key] = val
+        	end
+		end
+
+        return self
+    end
+
+    return obj
+end
+
+return Object

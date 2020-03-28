@@ -1,0 +1,132 @@
+local TableUtil = require(script.Parent.Parent:WaitForChild("TableUtil"))
+
+local function clone(value)
+    if typeof(value) == "table" then
+        return TableUtil.clone(value)
+    else
+        return value
+    end
+end
+
+local ObjectVariable = {}
+ObjectVariable.__index = ObjectVariable
+setmetatable(ObjectVariable, {
+    __call = function(cls, ...)
+        return cls.new(...)
+    end
+})
+
+function ObjectVariable.new(name, value, instance)
+    local self = setmetatable({}, ObjectVariable)
+	
+    local val = value
+	pcall(function()
+		if instance and instance[name] then
+			instance[name] = value
+			val = name
+		else
+			instance = nil
+		end
+	end)
+	
+	
+    local callbacks = {}
+    local propertyTable = {}
+
+    local function _Update(dontCallOnUpdate, newValue, oldValue, key)
+        if not dontCallOnUpdate then
+            for _,callback in pairs(callbacks) do
+                callback(newValue, oldValue, key)
+            end
+        end
+    end
+
+    function self:OnUpdate(func)
+        table.insert(callbacks, func)
+    end
+
+    function self:_Get()
+		if instance then
+			return instance[val]
+		else
+        	return val
+		end
+    end
+
+    function self:_Set(newVal, _dontCallOnUpdate)
+        local oldValue = val
+		if instance then
+			oldValue = instance[val]
+			instance[val] = newVal
+			_Update(_dontCallOnUpdate, instance[val], oldValue, name)
+		else
+			val = newVal
+			_Update(_dontCallOnUpdate, val, oldValue, name)
+		end
+        
+        
+    end
+
+    function self:Update(updateFunc, _dontCallOnUpdate)
+        local oldValue = self:_Get()
+        val = updateFunc(oldValue)
+        _Update(_dontCallOnUpdate, val, oldValue, name)
+    end
+
+    self.__index = function(_, key)
+		if propertyTable[key] then
+			if pcall(function() return(typeof(val) == "table" or typeof(val) == "Instance") and val[key] and val[key] ~= propertyTable[key] end) then
+				val[key] = propertyTable[key]:_Get()
+			end
+            return propertyTable[key]
+		elseif val[key] then
+			propertyTable[key] = ObjectVariable.new(key, val[key])
+			return propertyTable[key]
+        end
+    end
+
+    self.__newindex = function(_, key, newVal)
+        if propertyTable[key] then
+            local oldValue = propertyTable[key]
+            _Update(false, newVal, oldValue, key)
+			
+			propertyTable[key]:_Set(newVal)
+		else
+			if typeof(val) == "Instance" then
+				local succ,oldVal = pcall(function() return val[key] end)
+				propertyTable[key] = ObjectVariable.new(key, newVal, val)
+				
+				if succ then
+					_Update(false, newVal, oldVal, key)
+				else
+					_Update(false, newVal, nil, key)
+				end
+			else
+				propertyTable[key] = ObjectVariable.new(key, newVal)
+				_Update(false, newVal, nil, key)
+			end
+        end
+    end
+
+    self.__call = function(_, ...)
+        assert(typeof(val) == "function", ("Cannot call "))
+        
+        return val(...)
+    end
+	
+	self.__tostring = function()
+		return tostring(val)
+	end
+
+    self = setmetatable(self, self)
+
+	if typeof(val) == "table" then
+       	for key,v in pairs(val) do
+            propertyTable[key] = ObjectVariable.new(key, v)
+        end
+	end
+
+    return self
+end
+
+return ObjectVariable
